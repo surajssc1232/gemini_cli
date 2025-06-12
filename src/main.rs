@@ -24,22 +24,9 @@ const MAGENTA: &str = "\x1b[35m";
 const STRIKETHROUGH: &str = "\x1b[9m";
 
 // Modified function: now only handles borders, no language tag in the middle
-fn format_code_block_with_border(code: &str, line_width: usize) -> String {
-    let mut result = String::new();
-    let border_char = "─"; // Solid border character
-
-    // Top solid line
-    result.push_str(&format!("{}{}{}\n", DIM, border_char.repeat(line_width), RESET));
-
-    // Code content
-    for line in code.lines() {
-        result.push_str(&format!("{}\n", line));
-    }
-
-    // Bottom solid line
-    result.push_str(&format!("{}{}{}\n", DIM, border_char.repeat(line_width), RESET));
-
-    result
+fn format_code_block_with_border(code: &str, _line_width: usize) -> String {
+    // Simply return the code as is, removing the border logic
+    code.to_string()
 }
 
 /// Renders markdown text to the terminal with ANSI colors and formatting.
