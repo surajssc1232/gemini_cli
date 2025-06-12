@@ -23,55 +23,21 @@ const RED: &str = "\x1b[31m";
 const MAGENTA: &str = "\x1b[35m";
 const STRIKETHROUGH: &str = "\x1b[9m";
 
-fn format_code_block_with_border(code: &str, language: &str) -> String {
-    let lang_tag = if language.is_empty() { "text".to_string() } else { language.to_string() };
-    let lines: Vec<&str> = code.lines().collect();
-
-    let max_code_display_len = lines.iter().map(|s| {
-        let mut display_len = 0;
-        let mut in_ansi_escape = false;
-        for c in s.chars() {
-            if c == '\x1b' {
-                in_ansi_escape = true;
-            } else if in_ansi_escape && c.is_alphabetic() {
-                in_ansi_escape = false;
-            } else if !in_ansi_escape {
-                display_len += 1;
-            }
-        }
-        display_len
-    }).max().unwrap_or(0);
-
-    let line_width = std::cmp::max(max_code_display_len, lang_tag.len()).max(40); // Minimum width of 40
-
+// Modified function: now only handles borders, no language tag in the middle
+fn format_code_block_with_border(code: &str, line_width: usize) -> String {
     let mut result = String::new();
+    let border_char = "─"; // Solid border character
 
-    let dot_char = "-"; // Or " " for a space-dash-space effect
-
-    let total_tag_display_len = lang_tag.len() + 2; // +2 for spaces around the tag " tag "
-    let dashes_around_tag_len = line_width.saturating_sub(total_tag_display_len);
-    let dashes_left = dashes_around_tag_len / 2;
-    let dashes_right = (dashes_around_tag_len + 1) / 2; // +1 for odd lengths
-
-    result.push_str(&format!(
-        "{}{}{}{}{}{}{}\n",
-        DIM, // Set color to Dim (often grey)
-        dot_char.repeat(dashes_left),
-        " ", // Space before tag
-        BOLD, // Make tag bold
-        lang_tag,
-        RESET, // Reset bold for the right dots
-        dot_char.repeat(dashes_right)
-    ));
-
+    // Top solid line
+    result.push_str(&format!("{}{}{}\n", DIM, border_char.repeat(line_width), RESET));
 
     // Code content
-    for line in lines {
+    for line in code.lines() {
         result.push_str(&format!("{}\n", line));
     }
 
-    // Bottom dotted line
-    result.push_str(&format!("{}{}{}\n", DIM, dot_char.repeat(line_width), RESET));
+    // Bottom solid line
+    result.push_str(&format!("{}{}{}\n", DIM, border_char.repeat(line_width), RESET));
 
     result
 }
@@ -118,7 +84,6 @@ fn render_markdown(text: &str, syntax_set: &SyntaxSet, theme_set: &ThemeSet) {
                 }
                 _ => {}
             },
-            // FIX: Use `TagEnd` for the `Event::End` match
             Event::End(tag) => match tag {
                 TagEnd::Paragraph => print!("\n"),
                 TagEnd::Heading(_) => print!("{}\n\n", RESET),
@@ -140,8 +105,32 @@ fn render_markdown(text: &str, syntax_set: &SyntaxSet, theme_set: &ThemeSet) {
                         highlighted.push_str(&escaped);
                     }
                     
-                    print!("{}", format_code_block_with_border(&highlighted.trim_end(), &code_language));
+                    // Calculate max_code_display_len for the highlighted code
+                    let max_code_display_len = highlighted.lines().map(|s| {
+                        let mut display_len = 0;
+                        let mut in_ansi_escape = false;
+                        for c in s.chars() {
+                            if c == '\x1b' {
+                                in_ansi_escape = true;
+                            } else if in_ansi_escape && c.is_alphabetic() {
+                                in_ansi_escape = false;
+                            } else if !in_ansi_escape {
+                                display_len += 1;
+                            }
+                        }
+                        display_len
+                    }).max().unwrap_or(0);
 
+                    let line_width = std::cmp::max(max_code_display_len, 40); // Minimum width of 40
+
+                    // Print language name above the code block, if not empty or "text"
+                    if !code_language.is_empty() && code_language != "text" {
+                        println!("{}{}{}:{}{}", DIM, BOLD, code_language.to_uppercase(), RESET, DIM); 
+                    }
+                    
+                    print!("{}", format_code_block_with_border(&highlighted.trim_end(), line_width));
+                    println!("\n"); // Add spacing after the code block
+                    
                     code_buffer.clear();
                     code_language = String::from("text");
                 }
@@ -178,6 +167,7 @@ fn render_markdown(text: &str, syntax_set: &SyntaxSet, theme_set: &ThemeSet) {
         }
     }
     io::stdout().flush().unwrap();
+    println!("\n"); // This will ensure a single blank line after the entire response
 }
 
 
@@ -229,7 +219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("{}╭─────────────────────────────────────────────╮{}", CYAN, RESET);
     println!("{}│             {}Gemini AI REPL v2.2{}             │{}", CYAN, BOLD, RESET, CYAN);
-    println!("{}│   Type 'help' for commands or a prompt.   │{}", CYAN, RESET);
+    println!("{}│   Type 'help' for commands or a prompt.     │{}", CYAN, RESET);
     println!("{}╰─────────────────────────────────────────────╯{}", CYAN, RESET);
     println!();
 
@@ -257,7 +247,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
             "help" => {
-                // FIX: Added the missing `RESET` argument
                 println!("{}Available Commands:{}", BOLD, RESET);
                 println!("  {}help{}      - Show this help message", CYAN, RESET);
                 println!("  {}clear{}     - Clear the terminal screen", CYAN, RESET);
