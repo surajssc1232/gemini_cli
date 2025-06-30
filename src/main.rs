@@ -5,22 +5,29 @@ use pulldown_cmark::{Event, Parser, Tag, CodeBlockKind};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use bat::PrettyPrinter;
+use textwrap::{wrap, Options};
+use term_size;
 
 // ANSI color codes for formatting
 const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
 const DIM: &str = "\x1b[2m";
 const ITALIC: &str = "\x1b[3m";
-const GREEN: &str = "\x1b[32m";
+const HEADING_COLOR: &str = "\x1b[38;5;40m"; // A vibrant green
 const BLUE: &str = "\x1b[34m";
-const CYAN: &str = "\x1b[36m";
+const KEYWORD_COLOR: &str = "\x1b[38;5;111m"; // A distinct blue/cyan
 const YELLOW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
 const MAGENTA: &str = "\x1b[35m";
 const STRIKETHROUGH: &str = "\x1b[9m";
+const LIST_ITEM_BULLET: &str = "▶";
 
 /// Renders markdown text to the terminal with ANSI colors and formatting.
 fn render_markdown(text: &str) {
+    let (cols, _rows) = term_size::dimensions().unwrap_or((80, 24));
+    let wrap_width = cols / 2;
+    let wrap_options = Options::new(wrap_width).word_separator(textwrap::WordSeparator::AsciiSpace);
+
     let parser = Parser::new(text);
     let mut code_buffer = String::new();
     let mut code_language = String::from("text");
@@ -32,12 +39,17 @@ fn render_markdown(text: &str) {
         match event {
             Event::Start(tag) => match tag {
                 Tag::Paragraph => (),
-                Tag::Heading { .. } => print!("{}{}", BOLD, GREEN),
+                                Tag::Heading { .. } => print!("{}{}", BOLD, HEADING_COLOR),
                 Tag::BlockQuote(_) => print!("{}│ {}", YELLOW, RESET),
                 Tag::CodeBlock(kind) => {
                     in_code_block = true;
                     if let CodeBlockKind::Fenced(lang) = kind {
                         code_language = lang.into_string();
+                        if code_language.is_empty() {
+                            code_language = String::from("txt");
+                        }
+                    } else {
+                        code_language = String::from("txt"); // Default for indented code blocks
                     }
                 }
                 Tag::List(start_num) => {
@@ -49,7 +61,7 @@ fn render_markdown(text: &str) {
                          print!("\n{}{} {}. {}", indent, MAGENTA, num, RESET);
                          *num += 1;
                     } else {
-                        print!("\n{}{} * {}", indent, MAGENTA, RESET);
+                        print!("\n{}{} {} {}", indent, MAGENTA, LIST_ITEM_BULLET, RESET);
                     }
                 }
                 Tag::Emphasis => print!("{}", ITALIC),
@@ -62,9 +74,9 @@ fn render_markdown(text: &str) {
                 _ => {}
             },
             Event::End(tag) => match tag {
-                pulldown_cmark::TagEnd::Paragraph => print!("\n"),
+                                pulldown_cmark::TagEnd::Paragraph => print!("\n\n"),
                 pulldown_cmark::TagEnd::Heading(_) => print!("{}\n\n", RESET),
-                pulldown_cmark::TagEnd::BlockQuote => print!("\n"),
+                pulldown_cmark::TagEnd::BlockQuote => print!("\n\n"),
                 pulldown_cmark::TagEnd::CodeBlock => {
                     in_code_block = false;
                     
@@ -76,6 +88,7 @@ fn render_markdown(text: &str) {
                         .grid(true)
                         .print()
                         .unwrap();
+                    print!("\n\n"); // Add two newlines after code block
                     
                     code_buffer.clear();
                     code_language = String::from("text");
@@ -103,10 +116,12 @@ fn render_markdown(text: &str) {
                     code_buffer.push_str(&text);
                 }
                 else {
-                    print!("{}", text);
+                    for line in wrap(text.as_ref(), &wrap_options).into_iter() {
+                        print!("{}", line);
+                    }
                 }
             }
-            Event::Code(text) => print!("{}{}{}", CYAN, text, RESET),
+            Event::Code(text) => print!("  {}{}{} ", KEYWORD_COLOR, text, RESET),
             Event::HardBreak => print!("\n"),
             Event::SoftBreak => print!(" "),
             Event::Rule => println!("\n{}{} {}\n", DIM, "─".repeat(30), RESET),
@@ -163,10 +178,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new();
     
 
-    println!("{}╭─────────────────────────────────────────────╮{}", CYAN, RESET);
-    println!("{}│             {}Gemini AI REPL v2.2{}             │{}", CYAN, BOLD, RESET, CYAN);
-    println!("{}│   Type 'help' for commands or a prompt.     │{}", CYAN, RESET);
-    println!("{}╰─────────────────────────────────────────────╯{}", CYAN, RESET);
+    println!("{}╭─────────────────────────────────────────────╮{}", BLUE, RESET);
+    println!("{}│             {}Gemini AI REPL v2.2{}             │{}", BLUE, BOLD, RESET, BLUE);
+    println!("{}│   Type 'help' for commands or a prompt.     │{}", BLUE, RESET);
+    println!("{}╰─────────────────────────────────────────────╯{}", BLUE, RESET);
     println!();
 
     loop {
@@ -194,9 +209,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "help" => {
                 println!("{}Available Commands:{}", BOLD, RESET);
-                println!("  {}help{}      - Show this help message", CYAN, RESET);
-                println!("  {}clear{}     - Clear the terminal screen", CYAN, RESET);
-                println!("  {}quit/exit{} - Exit the REPL", CYAN, RESET);
+                println!("  {}help{}      - Show this help message", KEYWORD_COLOR, RESET);
+                println!("  {}clear{}     - Clear the terminal screen", KEYWORD_COLOR, RESET);
+                println!("  {}quit/exit{} - Exit the REPL", KEYWORD_COLOR, RESET);
                 println!("\nJust type any other message to chat with Gemini!");
                 continue;
             }
