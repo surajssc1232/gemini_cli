@@ -1,14 +1,10 @@
 use std::env;
 use std::io::{self, Write};
 
-// Make sure to import TagEnd here
-use pulldown_cmark::{Event, Parser, Tag, TagEnd, CodeBlockKind};
+use pulldown_cmark::{Event, Parser, Tag, CodeBlockKind};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use syntect::easy::HighlightLines;
-use syntect::highlighting::{ThemeSet, Style};
-use syntect::parsing::SyntaxSet;
-use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
+use bat::PrettyPrinter;
 
 // ANSI color codes for formatting
 const RESET: &str = "\x1b[0m";
@@ -23,14 +19,8 @@ const RED: &str = "\x1b[31m";
 const MAGENTA: &str = "\x1b[35m";
 const STRIKETHROUGH: &str = "\x1b[9m";
 
-// Modified function: now only handles borders, no language tag in the middle
-fn format_code_block_with_border(code: &str, _line_width: usize) -> String {
-    // Simply return the code as is, removing the border logic
-    code.to_string()
-}
-
 /// Renders markdown text to the terminal with ANSI colors and formatting.
-fn render_markdown(text: &str, syntax_set: &SyntaxSet, theme_set: &ThemeSet) {
+fn render_markdown(text: &str) {
     let parser = Parser::new(text);
     let mut code_buffer = String::new();
     let mut code_language = String::from("text");
@@ -72,64 +62,33 @@ fn render_markdown(text: &str, syntax_set: &SyntaxSet, theme_set: &ThemeSet) {
                 _ => {}
             },
             Event::End(tag) => match tag {
-                TagEnd::Paragraph => print!("\n"),
-                TagEnd::Heading(_) => print!("{}\n\n", RESET),
-                TagEnd::BlockQuote => print!("\n"),
-                TagEnd::CodeBlock => {
+                pulldown_cmark::TagEnd::Paragraph => print!("\n"),
+                pulldown_cmark::TagEnd::Heading(_) => print!("{}\n\n", RESET),
+                pulldown_cmark::TagEnd::BlockQuote => print!("\n"),
+                pulldown_cmark::TagEnd::CodeBlock => {
                     in_code_block = false;
-                    let syntax = syntax_set
-                        .find_syntax_by_extension(&code_language)
-                        .or_else(|| syntax_set.find_syntax_by_name(&code_language))
-                        .unwrap_or_else(|| syntax_set.find_syntax_plain_text());
-
-                    let theme = &theme_set.themes["base16-ocean.dark"];
-                    let mut highlighter = HighlightLines::new(syntax, theme);
-                    let mut highlighted = String::new();
-
-                    for line in LinesWithEndings::from(&code_buffer) {
-                        let ranges: Vec<(Style, &str)> = highlighter.highlight_line(line, syntax_set).unwrap_or_default();
-                        let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-                        highlighted.push_str(&escaped);
-                    }
                     
-                    // Calculate max_code_display_len for the highlighted code
-                    let max_code_display_len = highlighted.lines().map(|s| {
-                        let mut display_len = 0;
-                        let mut in_ansi_escape = false;
-                        for c in s.chars() {
-                            if c == '\x1b' {
-                                in_ansi_escape = true;
-                            } else if in_ansi_escape && c.is_alphabetic() {
-                                in_ansi_escape = false;
-                            } else if !in_ansi_escape {
-                                display_len += 1;
-                            }
-                        }
-                        display_len
-                    }).max().unwrap_or(0);
-
-                    let line_width = std::cmp::max(max_code_display_len, 40); // Minimum width of 40
-
-                    // Print language name above the code block, if not empty or "text"
-                    if !code_language.is_empty() && code_language != "text" {
-                        println!("{}{}{}:{}{}", DIM, BOLD, code_language.to_uppercase(), RESET, DIM); 
-                    }
-                    
-                    print!("{}", format_code_block_with_border(&highlighted.trim_end(), line_width));
-                    println!("\n"); // Add spacing after the code block
+                    // Use bat for code highlighting
+                    PrettyPrinter::new()
+                        .input_from_bytes(code_buffer.as_bytes())
+                        .language(&code_language)
+                        .line_numbers(true)
+                        .grid(true)
+                        .print()
+                        .unwrap();
                     
                     code_buffer.clear();
                     code_language = String::from("text");
                 }
-                TagEnd::List(_) => {
+                pulldown_cmark::TagEnd::List(_) => {
                     list_stack.pop();
                     if list_stack.is_empty() {
                          print!("\n");
                     }
                 }
-                TagEnd::Item => (),
-                TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => print!("{}", RESET),
-                TagEnd::Link => {
+                pulldown_cmark::TagEnd::Item => (),
+                pulldown_cmark::TagEnd::Emphasis | pulldown_cmark::TagEnd::Strong | pulldown_cmark::TagEnd::Strikethrough => print!("{}", RESET),
+                pulldown_cmark::TagEnd::Link => {
                     if let Some(url) = link_stack.pop() {
                         print!("]({}{}{})", BLUE, url, RESET);
                     } else {
@@ -142,7 +101,8 @@ fn render_markdown(text: &str, syntax_set: &SyntaxSet, theme_set: &ThemeSet) {
             Event::Text(text) => {
                 if in_code_block {
                     code_buffer.push_str(&text);
-                } else {
+                }
+                else {
                     print!("{}", text);
                 }
             }
@@ -201,8 +161,7 @@ async fn send_to_gemini(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY environment variable not set");
     let client = Client::new();
-    let syntax_set = SyntaxSet::load_defaults_newlines();
-    let theme_set = ThemeSet::load_defaults();
+    
 
     println!("{}╭─────────────────────────────────────────────╮{}", CYAN, RESET);
     println!("{}│             {}Gemini AI REPL v2.2{}             │{}", CYAN, BOLD, RESET, CYAN);
@@ -249,7 +208,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(response) => {
                         print!("\r{}\r", " ".repeat(15)); // Clear "Thinking..."
                         println!("{}Gemini:{}", BOLD, RESET);
-                        render_markdown(&response, &syntax_set, &theme_set);
+                        render_markdown(&response);
                     }
                     Err(e) => {
                         print!("\r{}\r", " ".repeat(15));
