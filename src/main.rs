@@ -139,7 +139,7 @@ async fn send_to_gemini(
     text: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={}",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite-preview-06-17:generateContent?key={}",
         api_key
     );
     let request_body = GeminiRequest { contents: vec![Content { parts: vec![Part { text: text.to_string() }] }] };
